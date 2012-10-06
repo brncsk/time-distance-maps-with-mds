@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+[ $# -eq 1 ] || {
+	echo "Usage: `basename $0` file.osm"
+	exit 65
+}
+
+[ -f $1 ] || {
+	echo "File does not exist."
+	exit 66
+}
+
+command -v osmosis >/dev/null 2>&1 || {
+	echo >&2 "Cannot find osmosis. Aborting."
+	exit 1
+}
+
+osmosis \
+	--read-xml $1 \
+	--way-key keyList="highway" \
+	--tf accept-ways highway=* \
+	--tf reject-ways highway=pedestrian,track,bus_guideway,raceway,path,footway,cycleway,bridleway,steps \
+	--used-node \
+	--compute-bounding-box \
+	--write-xml ${1%.osm}-roadsonly.osm

@@ -15,7 +15,12 @@ function [parsed_osm] = parse_osm(osm_xml)
 % Purpose:      parse loaded OpenStreetMap xml structure
 % Copyright:    Ioannis Filippidis, 2010-
 
-parsed_osm.bounds = parse_bounds(osm_xml.bounds);
+
+if isfield(osm_xml, 'bounds')
+   parsed_osm.bounds = parse_bounds(osm_xml.bounds);
+elseif isfield(osm_xml, 'bound')
+   parsed_osm.bounds = parse_bound(osm_xml.bound);
+end
 parsed_osm.node = parse_node(osm_xml.node);
 parsed_osm.way = parse_way(osm_xml.way);
 %parsed_osm.relation = parse_relation(osm.relation);
@@ -30,6 +35,13 @@ ymin = str2double(bounds.minlat);
 xmin = str2double(bounds.minlon);
 
 parsed_bounds = [xmin, xmax; ymin, ymax];
+
+function [parsed_bounds] = parse_bound(bound)
+bound = bound.Attributes.box;
+
+[xmin ymin xmax ymax] = strread(bound, '%f%f%f%f', 'delimiter', ',');
+
+parsed_bounds = [ymin, ymax; xmin, xmax];
 
 function [parsed_node] = parse_node(node)
 Nnodes = size(node,2);
