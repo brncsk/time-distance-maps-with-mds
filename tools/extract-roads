@@ -1,25 +1,61 @@
 #!/usr/bin/env bash
 
-[ $# -eq 1 ] || {
-	echo "Usage: `basename $0` file.osm"
-	exit 65
+RETVAL_EX_USAGE=64
+RETVAL_EX_NOINPUT=66
+RETVAL_ERROR=1
+ACCEPT_DEFAULT=*
+REJECT_DEFAULT=pedestrian,track,bus_guideway,raceway,path,footway,cycleway,bridleway,steps
+
+
+[ $# -gt 0 ] || {
+	echo -n "Usage: $(basename $0) "
+	echo -n "[--accept-values values | -a values] "
+	echo -n "[--reject-values values | -r values] "
+	echo "[--outfile file | -o file] file.osm"
+	exit $RETVAL_EX_USAGE
 }
 
-[ -f $1 ] || {
+OPTS=$(getopt -u -o a:r:o: -l accept-values:,reject-values:,outfile: -- "$@")
+
+[ $? = 0 ] || {
+	echo "Error parsing arguments."
+	exit $RETVAL_ERROR
+}
+
+set -- $OPTS
+
+while [ $# -gt 0 ]
+do
+    case $1 in
+	    -a | --accept-values) accept_values=$2; shift;;
+	    -r | --reject-values) reject_values=$2; shift;;
+		-o | --outfile)       outfile=$2;       shift;;
+	    (--) shift; break;;
+	    (*) break;;
+    esac
+    shift
+done
+
+accept_values=${accept_values:-$ACCEPT_DEFAULT}
+reject_values=${reject_values:-$REJECT_DEFAULT}
+infile=$1
+outfile=${outfile:-${infile%.osm}-roadsonly.osm}
+
+[ -f $infile ] || {
 	echo "File does not exist."
-	exit 66
+	exit $RETVAL_EX_NOINPUT
 }
 
 command -v osmosis >/dev/null 2>&1 || {
 	echo >&2 "Cannot find osmosis. Aborting."
-	exit 1
+	exit $RETVAL_EX_ERROR
 }
 
 osmosis \
-	--read-xml $1 \
+	--read-xml $infile \
 	--way-key keyList="highway" \
-	--tf accept-ways highway=* \
-	--tf reject-ways highway=pedestrian,track,bus_guideway,raceway,path,footway,cycleway,bridleway,steps \
+	--tf accept-ways highway=$accept_values \
+	--tf reject-ways highway=$reject_values \
 	--used-node \
 	--compute-bounding-box \
-	--write-xml ${1%.osm}-roadsonly.osm
+	--write-xml $outfile
