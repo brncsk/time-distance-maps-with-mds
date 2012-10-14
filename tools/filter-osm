@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+
+RETVAL_EX_USAGE=64
+RETVAL_EX_NOINPUT=66
+RETVAL_ERROR=1
+
+ACCEPT_WAYS_DEFAULT='highway=*'
+REJECT_WAYS_DEFAULT='highway=pedestrian,track,bus_guideway,raceway,path,footway,cycleway,bridleway,steps'
+
+SANITIZE_XSL='./sanitize-osm.xsl'
+
+FILTERED_SUFFIX='filtered'
+SANITIZED_SUFFIX='sanitized'
+
+[ $# -gt 0 ] || {
+	echo "Filter OSM data for the time-distance mapping algorithm using osmosis and xsltproc."
+	echo ""
+	echo "Usage: $(basename $0) "
+	echo "	[--accept-ways-values values | -aw values] "
+	echo "	[--reject-ways-values values | -rw values] "
+	echo "	[--accept-nodes-values values | -an values] "
+	echo "	[--reject-nodes-values values | -rn values] "
+	echo "	[--sanitize | s] "
+	echo "	[--outfile file | -o file] file.osm"
+	exit $RETVAL_EX_USAGE
+}
+
+OPTS=$(getopt -u \
+	-o aw:rw:an:rn:o:,s \
+	-l accept-ways-values:,reject-ways-values:,\
+accept-nodes-values:,reject-nodes-values:,\
+remove-tags,sanitize,\
+outfile: -- "$@")
+
+[ $? = 0 ] || {
+	echo "Error parsing arguments."
+	exit $RETVAL_ERROR
+}
+
+set -- $OPTS
+
+while [ $# -gt 0 ]
+do
+    case $1 in
+	    -aw | --accept-ways-values)  accept_ways_values="--tag-filter accept-ways $2";    shift;;
+	    -rw | --reject-ways-values)  reject_ways_values="--tag-filter reject-ways $2";    shift;;
+		-an | --accept-nodes-values) accept_nodes_values="--tag-filter accept-nodes $2";  shift;;
+		-rn | --reject-nodes-values) reject_nodes_values="--tag-filter reject-nodes $2";  shift;;
+		-o  | --outfile)             outfile=$2;                                          shift;;
+		-s  | --sanitize)            sanitize=true;;
+	    (--) shift; break;;
+	    (*) break;;
+    esac
+    shift
+done
+
+accept_ways_values=${accept_ways_values:-"--tag-filter accept-ways $ACCEPT_WAYS_DEFAULT"}
+reject_ways_values=${reject_ways_values:-"--tag-filter reject-ways $REJECT_WAYS_DEFAULT"}
+
+infile=$1
+outfile=${outfile:-${infile%.bz2}}
+outfile=${outfile%.osm}-$FILTERED_SUFFIX.osm
+
+[[ $infile != '' && -f $infile ]] || {
+	echo "File does not exist."
+	exit $RETVAL_EX_NOINPUT
+}
+
+command -v osmosis >/dev/null 2>&1 || {
+	echo >&2 "Cannot find osmosis. Aborting."
+	exit $RETVAL_EX_ERROR
+}
+
+$sanitize && command -v xsltproc >/dev/null 2>&1 || {
+	echo >&2 "Sanitization is enabled but xsltproc cannot be found. Aborting."
+	exit $RETVAL_EX_ERROR
+}
+
+if [ "$accept_nodes_values$reject_nodes_values" != '' ]; then
+	osmosis_cmd="osmosis \
+		-verbose 100 \
+	\
+		--read-xml $infile \
+		--way-key keyList='highway' \
+		$accept_ways_values \
+		$reject_ways_values \
+		--tag-filter reject-relations \
+		--used-node \
+	\
+		--read-xml $infile \
+		--tag-filter reject-relations  \
+		--tag-filter reject-ways \
+		$accept_nodes_values \
+		$reject_nodes_values \
+	\
+		--merge \
+		--compute-bounding-box \
+		--write-xml $outfile"
+else
+	osmosis_cmd="osmosis \
+		--read-xml $infile \
+		$accept_ways_values \
+		$reject_ways_values \
+		--tag-filter reject-relations \
+		--used-node \
+		--compute-bounding-box \
+		--write-xml $outfile"
+fi
+	echo $osmosis_cmd
+	echo
+	$osmosis_cmd
+
+if $sanitize; then
+	sanitize_outfile=${outfile%.osm}-$SANITIZED_SUFFIX.osm
+	xsltproc $SANITIZE_XSL $outfile > $sanitize_outfile
+	rm $outfile
+fi

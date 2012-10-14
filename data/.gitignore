@@ -1,2 +1,4 @@
 *.osm
+*.osm.bz2
+*.osm.gz
 !README*
