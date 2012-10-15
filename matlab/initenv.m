@@ -1,3 +1,9 @@
+function initenv
+
+POSTGRESQL_JDBC_CLASSPATH='/usr/share/java/postgresql.jar';
+
+%% Set path
+
 curPath = fileparts(mfilename('fullpath'));
 
 cd(curPath);
@@ -10,5 +16,7 @@ addpath ([curPath '/lib'], ...
         [curPath '/lib/openstreetmap/plotmd'], ...
         [curPath '/lib/openstreetmap/textmd'], ...
         [curPath '/lib/openstreetmap/xml2struct']);
-        
-clear curPath;
+
+%% Add JDBC driver path to classpath
+
+javaaddpath(POSTGRESQL_JDBC_CLASSPATH);
