@@ -5,147 +5,117 @@ RETVAL_EX_NOINPUT=66
 RETVAL_ERROR=1
 
 GETOPT_SHORT="sv"
-GETOPT_LONG="sanitize,verbose,aw:,rw:,an:,rn:,wf:,wp:,tp,accept-ways-values:,reject-ways-values:,\
-accept-nodes-values:,reject-nodes-values:,write-file:,write-psql:,truncate-psql"
-
-ACCEPT_WAYS_DEFAULT='highway=primary,primary_trunk,motoway,motoway_trunk'
-REJECT_WAYS_DEFAULT='highway=pedestrian,track,bus_guideway,raceway,path,footway,cycleway,bridleway,steps'
+GETOPT_LONG="write-file:,wf:,write-psql:,wp:,psql-schema:,ps:,truncate-psql,tp,sanitize,s,verbose,v"
 
 SANITIZE_XSL='./sanitize-osm.xsl'
 
 FILTERED_SUFFIX='filtered'
 SANITIZED_SUFFIX='sanitized'
 
+POSTGRES_DEFAULT_SCHEMA='pgsql'
+
+
 [ $# -gt 0 ] || {
 	echo "Preprocess OSM data for the time-distance mapping algorithm."
 	echo ""
 	echo "Usage: $(basename $0) "
-	echo "	[--accept-ways-values values | --aw values]  -- Accept ways with certain tags only"
-	echo "	[--reject-ways-values values | --rw values]  -- Reject ways with certain tags"
-	echo "	[--accept-nodes-values values | --an values] -- Accept nodes with certain tags only"
-	echo "	[--reject-nodes-values values | --rn values] -- Reject nodes with certain tags"
-	echo "	[--write-file file | --wf file]              -- Specify output file name"
-	echo "	[--write-psql database | --wp database]      -- Specify output PostgreSQL database"
-	echo "	[--truncate-psql | --tp]                     -- Truncate PostgresSQL database before importing"
-	echo "	[--sanitize | -s]                            -- Sanitize output XML minimizing file size"
-	echo "	[--verbose | -v]                             -- Output debug information"
-	echo "	file.osm                                     -- Input file name"
+	echo "	[--write-file | --wf] file               -- Specify output file name"
+	echo "	[--write-psql | --wp] database           -- Specify output PostgreSQL database"
+	echo "	[--psql-schema | --ps] {pgsql,pgsimp}    -- Specify PostgreSQL schema"
+	echo "	[--truncate-psql | --tp]                 -- Truncate PostgresSQL database before importing"
+	echo "	[--sanitize | -s]                        -- Sanitize output XML minimizing file size"
+	echo "	[--verbose | -v]                         -- Output debug information"
+	echo "	file.osm                                 -- Input file name"
 	exit $RETVAL_EX_USAGE
 }
+
 
 OPTS=$(getopt -u -o "$GETOPT_SHORT" -l "$GETOPT_LONG" -n "`basename $0`" -- "$@")
 
 [ $? = 0 ] || {
-	echo "Error parsing arguments."
+	echo >&2 "Error parsing arguments."
 	exit $RETVAL_ERROR
 }
 
 set -- $OPTS
 
-while [ $# -gt 0 ]
-do
+while [ $# -gt 0 ]; do
     case $1 in
-		--aw | --accept-ways-values)  accept_ways_values="--tag-filter accept-ways $2";    shift;;
-		--rw | --reject-ways-values)  reject_ways_values="--tag-filter reject-ways $2";    shift;;
-		--an | --accept-nodes-values) accept_nodes_values="--tag-filter accept-nodes $2";  shift;;
-		--rn | --reject-nodes-values) reject_nodes_values="--tag-filter reject-nodes $2";  shift;;
-		--wf | --write-file)          outfile=$2;                                          shift;;
-		--wp | --write-psql)          pdb=$2;                                              shift;;
-		--tp | --truncate-psql)       truncate=true;;
-		-s   | --sanitize)            sanitize=true;;
-		-v	 | --verbose)             verbose=true;;
+		--wf | --write-file)          outfile=$2;      shift;;
+		--wp | --write-psql)          psql_db=$2;      shift;;
+		--ps | --psql-schema)
+			[ "$psql_schema" = 'pgsimp' -o "$psql_schema" = 'pgsql' ] && psql_schema=$2 || {
+				echo "Invalid PostgreSQL schema."
+				exit $RETVAL_ERROR
+			}
+			shift;;
+		--tp | --truncate-psql)       truncate=1;;
+		-s   | --sanitize)            sanitize=1;;
+		-v	 | --verbose)             verbose=1;;
+
 		(--) shift; break;;
 		(*) break;;
     esac
     shift
 done
 
-# accept_ways_values=${accept_ways_values:-"--tag-filter accept-ways $ACCEPT_WAYS_DEFAULT"}
-# reject_ways_values=${reject_ways_values:-"--tag-filter reject-ways $REJECT_WAYS_DEFAULT"}
-
 infile=$1
 
-[[ $infile != '' && -f $infile ]] || {
-	echo "File '$infile' does not exist."
+[ "$infile" != '' -a -f "$infile" ] || {
+	echo >&2 "File '$infile' does not exist."
 	exit $RETVAL_EX_NOINPUT
 }
 
-command -v osmosis >/dev/null 2>&1 || {
+command -v osmosis > /dev/null 2>&1 || {
 	echo >&2 "Cannot find osmosis. Aborting."
 	exit $RETVAL_EX_ERROR
 }
 
-$sanitize && command -v xsltproc >/dev/null 2>&1 || {
+command -v xsltproc >/dev/null 2>&1 
+[ "$sanitize" = '1' -a $? -ne '0' ] && {
 	echo >&2 "Sanitization is enabled but xsltproc cannot be found. Aborting."
 	exit $RETVAL_EX_ERROR
 }
 
-([ "$verbose" == '' ] && osmosis_verbose='-verbose 0') || osmosis_verbose='-verbose 100'
+[ $verbose ] && osmosis_verbose='-verbose 100' || osmosis_verbose='-verbose 0'
+osmosis_cmd="osmosis $osmosis_verbose --read-xml $infile "
 
-[ "$accept_nodes_values$reject_nodes_values$accept_ways_values$reject_ways_values" != '' ] && {
-	$used_node = '--used-node';
-}
+if [ $psql_db ]; then
 
-if [ "$accept_nodes_values$reject_nodes_values" != '' ]; then
-	osmosis_cmd="osmosis \
-	\
-		$osmosis_verbose \
-	\
-		--read-xml $infile \
-		--way-key keyList='highway' \
-		$accept_ways_values \
-		$reject_ways_values \
-		--tag-filter reject-relations \
-		$used_node \
-	\
-		--read-xml $infile \
-		--tag-filter reject-relations  \
-		--tag-filter reject-ways \
-		$accept_nodes_values \
-		$reject_nodes_values \
-	\
-		--merge"
+	source ../psql.conf
+
+	psql_schema=${psql_schema:-$POSTGRES_DEFAULT_SCHEMA}
+	psql_authinfo="
+		host=$PG_HOST \
+		user=$PG_USER \
+		password=$PG_PASSWORD \
+		database=$psql_db \
+		validateSchemaVersion=no"
+
+	[ $truncate ] && {
+		osmosis_truncate_cmd="osmosis --truncate-$psql_schema $psql_authinfo"
+		[ $verbose ] && { echo; echo *****; echo $osmosis_truncate_cmd; echo *****; echo; }
+		$osmosis_truncate_cmd
+	}
+
+	osmosis_cmd="$osmosis_cmd --write-$psql_schema $psql_authinfo"
+
 else
-	osmosis_cmd="osmosis \
-	\
-		$osmosis_verbose \
-	\
-		--read-xml $infile \
-		$accept_ways_values \
-		$reject_ways_values \
-		--tag-filter reject-relations \
-		$used_node "
-fi
 
-if [ "$pdb" == '' ]; then
 	outfile=${outfile:-${infile%.bz2}}
 	outfile=${outfile%.osm}-$FILTERED_SUFFIX.osm
 
 	osmosis_cmd="$osmosis_cmd \
 		--compute-bounding-box \
 		--write-xml $outfile"
-else
-	source ../psql.conf
 
-	$truncate && {
-		osmosis_truncate_cmd="osmosis \
-			--truncate-pgsimp host=$PG_HOST user=$PG_USER password=$PG_PASSWORD database=$pdb"
-		[ "$verbose" == '' ] || echo $osmosis_truncate_cmd
-		$osmosis_truncate_cmd
-	}
-
-	osmosis_cmd="$osmosis_cmd \
-		--write-pgsimp host=$PG_HOST user=$PG_USER password=$PG_PASSWORD database=$pdb"
 fi
 
-[ "$verbose" == '' ] || echo $osmosis_cmd
-echo
+[ $verbose ] && { echo; echo *****; echo $osmosis_cmd; echo *****; echo; }
 $osmosis_cmd
 
-if [ $sanitize ]; then
-	if [ "$pdb" == '' ]; then
-		sanitize_outfile=${outfile%.osm}-$SANITIZED_SUFFIX.osm
-		xsltproc $SANITIZE_XSL $outfile > $sanitize_outfile
-		rm $outfile
-	fi
+if [ "$sanitize" != '' -a "$psql_db" = '' ]; then
+	sanitize_outfile=${outfile%.osm}-$SANITIZED_SUFFIX.osm
+	xsltproc $SANITIZE_XSL $outfile > $sanitize_outfile
+	rm $outfile
 fi
