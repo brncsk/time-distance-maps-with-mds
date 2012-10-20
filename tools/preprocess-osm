@@ -5,8 +5,8 @@ RETVAL_EX_NOINPUT=66
 RETVAL_ERROR=1
 
 GETOPT_SHORT="sv"
-GETOPT_LONG="sanitize,verbose,aw:,rw:,an:,rn:,wf:,wp:,accept-ways-values:,reject-ways-values:,\
-accept-nodes-values:,reject-nodes-values:,write-file:,write-psql:"
+GETOPT_LONG="sanitize,verbose,aw:,rw:,an:,rn:,wf:,wp:,tp,accept-ways-values:,reject-ways-values:,\
+accept-nodes-values:,reject-nodes-values:,write-file:,write-psql:,truncate-psql"
 
 ACCEPT_WAYS_DEFAULT='highway=primary,primary_trunk,motoway,motoway_trunk'
 REJECT_WAYS_DEFAULT='highway=pedestrian,track,bus_guideway,raceway,path,footway,cycleway,bridleway,steps'
@@ -26,6 +26,7 @@ SANITIZED_SUFFIX='sanitized'
 	echo "	[--reject-nodes-values values | --rn values] -- Reject nodes with certain tags"
 	echo "	[--write-file file | --wf file]              -- Specify output file name"
 	echo "	[--write-psql database | --wp database]      -- Specify output PostgreSQL database"
+	echo "	[--truncate-psql | --tp]                     -- Truncate PostgresSQL database before importing"
 	echo "	[--sanitize | -s]                            -- Sanitize output XML minimizing file size"
 	echo "	[--verbose | -v]                             -- Output debug information"
 	echo "	file.osm                                     -- Input file name"
@@ -50,16 +51,17 @@ do
 		--rn | --reject-nodes-values) reject_nodes_values="--tag-filter reject-nodes $2";  shift;;
 		--wf | --write-file)          outfile=$2;                                          shift;;
 		--wp | --write-psql)          pdb=$2;                                              shift;;
-		-s  | --sanitize)            sanitize=true;;
-		-v	| --verbose)             verbose=true;;
+		--tp | --truncate-psql)       truncate=true;;
+		-s   | --sanitize)            sanitize=true;;
+		-v	 | --verbose)             verbose=true;;
 		(--) shift; break;;
 		(*) break;;
     esac
     shift
 done
 
-accept_ways_values=${accept_ways_values:-"--tag-filter accept-ways $ACCEPT_WAYS_DEFAULT"}
-reject_ways_values=${reject_ways_values:-"--tag-filter reject-ways $REJECT_WAYS_DEFAULT"}
+# accept_ways_values=${accept_ways_values:-"--tag-filter accept-ways $ACCEPT_WAYS_DEFAULT"}
+# reject_ways_values=${reject_ways_values:-"--tag-filter reject-ways $REJECT_WAYS_DEFAULT"}
 
 infile=$1
 
@@ -80,6 +82,10 @@ $sanitize && command -v xsltproc >/dev/null 2>&1 || {
 
 ([ "$verbose" == '' ] && osmosis_verbose='-verbose 0') || osmosis_verbose='-verbose 100'
 
+[ "$accept_nodes_values$reject_nodes_values$accept_ways_values$reject_ways_values" != '' ] && {
+	$used_node = '--used-node';
+}
+
 if [ "$accept_nodes_values$reject_nodes_values" != '' ]; then
 	osmosis_cmd="osmosis \
 	\
@@ -90,7 +96,7 @@ if [ "$accept_nodes_values$reject_nodes_values" != '' ]; then
 		$accept_ways_values \
 		$reject_ways_values \
 		--tag-filter reject-relations \
-		--used-node \
+		$used_node \
 	\
 		--read-xml $infile \
 		--tag-filter reject-relations  \
@@ -108,7 +114,7 @@ else
 		$accept_ways_values \
 		$reject_ways_values \
 		--tag-filter reject-relations \
-		--used-node "
+		$used_node "
 fi
 
 if [ "$pdb" == '' ]; then
@@ -120,6 +126,14 @@ if [ "$pdb" == '' ]; then
 		--write-xml $outfile"
 else
 	source ../psql.conf
+
+	$truncate && {
+		osmosis_truncate_cmd="osmosis \
+			--truncate-pgsimp host=$PG_HOST user=$PG_USER password=$PG_PASSWORD database=$pdb"
+		[ "$verbose" == '' ] || echo $osmosis_truncate_cmd
+		$osmosis_truncate_cmd
+	}
+
 	osmosis_cmd="$osmosis_cmd \
 		--write-pgsimp host=$PG_HOST user=$PG_USER password=$PG_PASSWORD database=$pdb"
 fi
