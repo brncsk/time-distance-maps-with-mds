@@ -5,7 +5,12 @@ RETVAL_EX_NOINPUT=66
 RETVAL_ERROR=1
 
 GETOPT_SHORT="sv"
-GETOPT_LONG="write-file:,wf:,write-psql:,wp:,psql-schema:,ps:,truncate-psql,tp,sanitize,s,verbose,v"
+GETOPT_LONG="write-file:,wf:,\
+write-psql:,wp:,\
+psql-create-db,pc,\
+psql-schema:,ps:,\
+psql-truncate,pt,\
+sanitize,verbose"
 
 SANITIZE_XSL='./sanitize-osm.xsl'
 
@@ -13,7 +18,8 @@ FILTERED_SUFFIX='filtered'
 SANITIZED_SUFFIX='sanitized'
 
 POSTGRES_DEFAULT_SCHEMA='pgsql'
-
+POSTGRES_CONTRIB_SQL_PATH='/usr/share/postgresql/9.1/contrib/postgis-2.0'
+POSTGRES_OSMOSIS_SQL_PATH='/usr/share/doc/osmosis/examples/'
 
 [ $# -gt 0 ] || {
 	echo "Preprocess OSM data for the time-distance mapping algorithm."
@@ -21,8 +27,9 @@ POSTGRES_DEFAULT_SCHEMA='pgsql'
 	echo "Usage: $(basename $0) "
 	echo "	[--write-file | --wf] file               -- Specify output file name"
 	echo "	[--write-psql | --wp] database           -- Specify output PostgreSQL database"
+	echo "	[--psql-create-db | --pc]                -- Create database before populating it"
 	echo "	[--psql-schema | --ps] {pgsql,pgsimp}    -- Specify PostgreSQL schema"
-	echo "	[--truncate-psql | --tp]                 -- Truncate PostgresSQL database before importing"
+	echo "	[--psql-truncate | --pt]                 -- Truncate PostgresSQL database before importing"
 	echo "	[--sanitize | -s]                        -- Sanitize output XML minimizing file size"
 	echo "	[--verbose | -v]                         -- Output debug information"
 	echo "	file.osm                                 -- Input file name"
@@ -41,17 +48,18 @@ set -- $OPTS
 
 while [ $# -gt 0 ]; do
     case $1 in
-		--wf | --write-file)          outfile=$2;      shift;;
-		--wp | --write-psql)          psql_db=$2;      shift;;
+		--wf | --write-file)			outfile=$2;      shift;;
+		--wp | --write-psql)			psql_db=$2;      shift;;
+		--pc | --psql-create-db)		create_db=1;;
 		--ps | --psql-schema)
-			[ "$psql_schema" = 'pgsimp' -o "$psql_schema" = 'pgsql' ] && psql_schema=$2 || {
+			[ "$2" = 'pgsimp' -o "$2" = 'pgsql' ] && psql_schema=$2 || {
 				echo "Invalid PostgreSQL schema."
 				exit $RETVAL_ERROR
 			}
 			shift;;
-		--tp | --truncate-psql)       truncate=1;;
-		-s   | --sanitize)            sanitize=1;;
-		-v	 | --verbose)             verbose=1;;
+		--pt | --psql-truncate)			truncate=1;;
+		-s   | --sanitize)				sanitize=1;;
+		-v	 | --verbose)				verbose=1;;
 
 		(--) shift; break;;
 		(*) break;;
@@ -91,6 +99,48 @@ if [ $psql_db ]; then
 		password=$PG_PASSWORD \
 		database=$psql_db \
 		validateSchemaVersion=no"
+
+	[ $create_db ] && {
+		[ $psql_schema = 'pgsimp' ] \
+			&& psql_schema_prefix='pgsimple' \
+			|| psql_schema_prefix='pgsnapshot'
+
+		psql_template_sql=( \
+			"$POSTGRES_CONTRIB_SQL_PATH/postgis.sql" \
+			"$POSTGRES_CONTRIB_SQL_PATH/spatial_ref_sys.sql" \
+			"$POSTGRES_CONTRIB_SQL_PATH/postgis_comments.sql" \
+			"CREATE EXTENSION hstore;" \
+			"$POSTGRES_OSMOSIS_SQL_PATH/${psql_schema_prefix}_schema_0.6.sql" \
+			"$POSTGRES_OSMOSIS_SQL_PATH/${psql_schema_prefix}_schema_0.6_linestring.sql" \
+			"$POSTGRES_OSMOSIS_SQL_PATH/${psql_schema_prefix}_schema_0.6_bbox.sql" \
+			"$POSTGRES_OSMOSIS_SQL_PATH/${psql_schema_prefix}_schema_0.6_action.sql" \
+			"GRANT ALL ON geometry_columns TO $PG_USER;" \
+			"GRANT ALL ON geography_columns TO $PG_USER;" \
+			"GRANT ALL ON spatial_ref_sys TO $PG_USER;" \
+			"VACUUM FULL;" \
+		)
+		
+		sudo -u postgres dropdb $psql_db
+		sudo -u postgres createdb $psql_db
+		sudo -u postgres createlang -d $psql_db plpgsql
+
+		OLDIFS=$IFS
+		IFS=$'\n'
+
+		for f in ${psql_template_sql[@]}; do
+			[ $verbose ] && echo "$f"
+			[ -f "$f" ] && p="f" || p="c"
+			sudo -u postgres psql --quiet -d $psql_db -$p $f
+		done
+
+		IFS=$OLDIFS
+		
+		tables=$(psql -qAt -c "SELECT tablename FROM pg_tables WHERE schemaname = 'public';" $psql_db)
+
+		for t in $tables; do
+			sudo -u postgres psql --quiet -c "ALTER TABLE $t OWNER TO $PG_USER" $psql_db
+		done
+	}
 
 	[ $truncate ] && {
 		osmosis_truncate_cmd="osmosis --truncate-$psql_schema $psql_authinfo"
