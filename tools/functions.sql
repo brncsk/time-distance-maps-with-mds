@@ -54,62 +54,71 @@ CREATE OR REPLACE FUNCTION mt_ways_by_tag(tagexpr TEXT)
   AS $$
     DECLARE
       wids BIGINT[];
-      tag_key TEXT;
-      tag_values TEXT[];
     BEGIN
-      tag_key := split_part("tagexpr", '=', 1);
-      tag_values := regexp_split_to_array(
-        split_part("tagexpr", '=', 2),
-        E',\\s?'
-      );
-      
-      SELECT ARRAY(
-          SELECT DISTINCT
-            "id"
-          FROM
-            "ways"
-          RIGHT JOIN
-            "way_tags"
-              ON
-                "way_tags"."way_id" = "ways"."id"
-          WHERE
-            "way_tags"."k" = "tag_key" AND
-            "way_tags"."v" = ANY("tag_values")
-      ) INTO "wids";
+      EXECUTE 'SELECT
+        ARRAY(SELECT DISTINCT "id" FROM "ways"
+      WHERE
+        ' || _parse_hstore_filter(tagexpr, 'tags') || ');'
+      INTO wids;
 
-      RETURN QUERY SELECT * FROM _mt_ways(
-        wids
-      );      
+      RETURN QUERY SELECT * FROM _mt_ways(wids);
     END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION mt_nodes_by_tag(tagexpr TEXT)
   RETURNS SETOF _mt_point
   AS $$
-    DECLARE
-      tag_key TEXT;
-      tag_values TEXT[];
     BEGIN
-      tag_key := split_part("tagexpr", '=', 1);
-      tag_values := regexp_split_to_array(
-        split_part("tagexpr", '=', 2),
-        E',\\s?'
-      );
-
-      RETURN QUERY SELECT
+      RETURN QUERY EXECUTE 'SELECT
         ST_X("nodes"."geom"),
         ST_Y("nodes"."geom")
       FROM
         "nodes"
-      JOIN
-        "node_tags"
-          ON
-            "node_tags"."node_id" = "nodes"."id"
       WHERE
-        "node_tags"."k" = "tag_key" AND
-        "node_tags"."v" = ANY("tag_values")
-      ;
+      ' || _parse_hstore_filter(tagexpr, 'tags') || '
+      ;';
     END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS _parse_hstore_filter(TEXT, TEXT);
+CREATE OR REPLACE FUNCTION _parse_hstore_filter(filterexpr TEXT, hstorecolname TEXT)
+  RETURNS TEXT AS $$
+    DECLARE
+      tags TEXT[];
+      tag_key TEXT;
+      tag_values TEXT[];
+      filters TEXT[];
+      current_filter TEXT[];
+      i INTEGER;
+      j INTEGER;
+      
+    BEGIN
+      filters := '{}';
+      tags := regexp_split_to_array(filterexpr, E'\\s+');
+
+      FOR i IN 1..array_upper(tags, 1)
+        LOOP
+          tag_key := split_part(tags[i], '=', 1);
+          tag_values := regexp_split_to_array(split_part(tags[i], '=', 2), E',');
+          current_filter := '{}';
+
+          IF (tag_values[array_upper(tag_values, 1)] = '') THEN
+            filters := array_append(filters, '("' || hstorecolname || '" ? ''' || tag_key || ''')');
+          ELSE
+            FOR j IN 1..array_upper(tag_values, 1)
+              LOOP
+                current_filter := array_append(
+                  current_filter,
+                  '("' || hstorecolname || '" @> ''' || tag_key || '=>' || tag_values[j] || ''')'
+                );
+              END LOOP;
+              
+              filters := array_append(filters, '(' || array_to_string(current_filter, ' OR ') || ')');
+          END IF;
+        END LOOP;
+
+      RETURN array_to_string(filters, ' AND ');
+  END;
 $$ LANGUAGE plpgsql;
 
 COMMIT;
