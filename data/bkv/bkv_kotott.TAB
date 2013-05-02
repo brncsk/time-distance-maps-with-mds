@@ -1,0 +1,17 @@
+!table
+!version 300
+!charset WindowsLatin2
+
+Definition Table
+  Type NATIVE Charset "WindowsLatin2"
+  Fields 10
+    shape_id Char (4) Index 1 ;
+    route_id Char (4) ;
+    jaratszam Char (15) ;
+    route_type Integer Index 2 ;
+    irany Logical ;
+    tipus Char (15) Index 3 ;
+    nappal Logical ;
+    ejszaka Logical ;
+    ervkezdet Char (10) ;
+    ervveg Char (10) ;
