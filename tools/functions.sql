@@ -4,7 +4,8 @@ DROP TYPE IF EXISTS _mt_point CASCADE;
 
 CREATE TYPE _mt_point AS (
   "lat" DOUBLE PRECISION,
-  "lon" DOUBLE PRECISION
+  "lon" DOUBLE PRECISION,
+  "name" TEXT
 );
 
 CREATE OR REPLACE FUNCTION _mt_ways(way_ids BIGINT[])
@@ -18,7 +19,8 @@ CREATE OR REPLACE FUNCTION _mt_ways(way_ids BIGINT[])
             LOOP
                 RETURN QUERY SELECT
                   ST_X("nodes"."geom"),
-                  ST_Y("nodes"."geom")
+                  ST_Y("nodes"."geom"),
+                  ''::text
                 FROM
                   "way_nodes"
                 JOIN
@@ -71,7 +73,8 @@ CREATE OR REPLACE FUNCTION mt_nodes_by_tag(tagexpr TEXT)
     BEGIN
       RETURN QUERY EXECUTE 'SELECT
         ST_X("nodes"."geom"),
-        ST_Y("nodes"."geom")
+        ST_Y("nodes"."geom"),
+        "tags" -> ''name'' AS "name"
       FROM
         "nodes"
       WHERE

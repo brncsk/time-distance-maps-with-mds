@@ -1,3 +1,7 @@
+%POSTGIS_PARSE_TO_MAPPING_TOOLBOX PostGIS lekérdezés eredményének
+% átalakítása a MATLAB Mapping Toolboxában való használatra.
+%
+% (C) GPLv2 Barancsuk Ádám, 2013
 function [s] = postgis_parse_to_mapping_toolbox(conn, query, varargin)
     if (~isempty(varargin))
         type = varargin{1};
@@ -11,7 +15,5 @@ function [s] = postgis_parse_to_mapping_toolbox(conn, query, varargin)
     lon = cell2mat(data(:,1));
     lat = cell2mat(data(:,2));
     
-    fprintf ('%d points\n', sum(~isnan(lon)));
-    
-    s = geostruct_from_latlon(lat, lon, type);
+    s = geostruct_from_latlon(lat, lon, type, struct('Names', data(:, 3)));
 end

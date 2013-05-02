@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+LICENSE_PATH=/data/applications/matlab-r2012b/licenses/license_brncsk-laptop_724504_R2012b.lic
 DIR="$( cd -P "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 cd $DIR/../matlab
-matlab -desktop
+matlab -desktop -c $LICENSE_PATH
