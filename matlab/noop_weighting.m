@@ -13,6 +13,7 @@ function [W, D] = noop_weighting(X, Y, D, o)
 %    W = zeros(N);
 
     W = ORIGDIST .^ -2;
+    W(D == 0) = 0;
     W(W == Inf) = 0;
     
 %    W(TRANSFORMED_ELEMENTS) = mean(W(:)) * TRANSFORMED_WEIGHT_COEFF;

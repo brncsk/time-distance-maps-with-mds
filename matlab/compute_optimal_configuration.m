@@ -71,41 +71,41 @@ function [x, outStruct] = compute_optimal_configuration(P, D, S, o)
         % Távolságok frissítése az aktuális értékekre
         DIST = squareform(pdist(horzcat(X, Y)));
         
-        % Minden pontra...
-        for k = 1:N
-            % Változók frissítése
-            XSum = 0;
-            YSum = 0;
-            WSum = sum(W(k, :));
-            
-            % Minden más pontra...
-            for l = 1:N
-                % ami nem az, amivel épp dolgozunk...
-                if (k == l)
-                    continue;
-                end
-                
-                % ...kiszámoljuk azt az "erőt", amit az `l` pont gyakorol a
-                % `k`-ra.
-                if (DIST(k, l) ~= 0)
-                    distinv = 1 / DIST(k, l);
-                else
-                    distinv = 0;
-                end
-                
-                XSum = XSum + W(k, l) * (X(l) + D(k, l) * distinv * (X(k) - X(l)));
-                YSum = YSum + W(k, l) * (Y(l) + D(k, l) * distinv * (Y(k) - Y(l)));
-            end
-            
-            XNew(k) = XSum / WSum;
-            YNew(k) = YSum / WSum;
-        end
+%         % Minden pontra...
+%         for k = 1:N
+%             % Változók frissítése
+%             XSum = 0;
+%             YSum = 0;
+%             WSum = sum(W(k, :));
+%             
+%             % Minden más pontra...
+%             for l = 1:N
+%                 % ami nem az, amivel épp dolgozunk...
+%                 if (k == l)
+%                     continue;
+%                 end
+%                 
+%                 % ...kiszámoljuk azt az "erőt", amit az `l` pont gyakorol a
+%                 % `k`-ra.
+%                 if (DIST(k, l) ~= 0)
+%                     distinv = 1 / DIST(k, l);
+%                 else
+%                     distinv = 0;
+%                 end
+%                 
+%                 XSum = XSum + W(k, l) * (X(l) + D(k, l) * distinv * (X(k) - X(l)));
+%                 YSum = YSum + W(k, l) * (Y(l) + D(k, l) * distinv * (Y(k) - Y(l)));
+%             end
+%             
+%             XNew(k) = XSum / WSum;
+%             YNew(k) = YSum / WSum;
+%         end
             
         % Frissítjük a pontok pozícióját.
-        X = XNew;
-        Y = YNew;
+%        X = XNew;
+%        Y = YNew;
         
-        if (o.AngleStress)
+%        if (o.AngleStress)
             for k = 1:N
 
                 for l = 1:N
@@ -114,15 +114,14 @@ function [x, outStruct] = compute_optimal_configuration(P, D, S, o)
                     end
 
                     ANGLE_TERM(k,:) = ...
-                        ANGLE_TERM(k,:) + (ANGLE_WEIGHT *  ...
+                        ANGLE_TERM(k,:) + (W(k, l) *  ...
                         (([X(k) Y(k)] - [X(l) Y(l)]) - (D(k, l) * [sin(ORIGBEARING(l, k)) cos(ORIGBEARING(l, k))])));
                 end
 
                 %if mod(ITER_COUNT, 100) == 0
-                %    disp([k ANGLE_TERM(k,:)]);
                 %end            
             end
-            
+
             X(:) = X(:) - ANGLE_TERM(:, 1);
             Y(:) = Y(:) - ANGLE_TERM(:, 2);
             
@@ -132,7 +131,13 @@ function [x, outStruct] = compute_optimal_configuration(P, D, S, o)
                 AST = AST + sum((ANGLE_TERM(k,1) ./ ANGLE_WEIGHT).^2);
                 AST = AST + sum((ANGLE_TERM(k,2) ./ ANGLE_WEIGHT).^2);
             end
-        end
+%        end
+        %%
+        % 
+        %   for x = 1:10
+        %       disp(x)
+        %   end
+        % 
         
         if o.PlotCPTraces
             XTraces(ITER_COUNT + 1, :) = X(:);
@@ -203,36 +208,71 @@ function [x, outStruct] = compute_optimal_configuration(P, D, S, o)
         outStruct.CPTraces = geostruct_from_latlon(CPTLat(:), CPTLon(:), 'MultiPoint');
     end
     
+    toc
+    
     %% „Out-of-sample” geometriák torzulásának számítása IDW-vel
     
+    tic;
     [SX, SY, SSF] = tmerc(S.Lat, S.Lon);
     
+    SNX = zeros(size(SX));
+    SNY = zeros(size(SX));
+    
+    size(SX)
+    
+%     for i = 1 : size(SX)
+%         IW = zeros(N, 1);
+%         IDX = zeros(N, 1);
+%         IDY = zeros(N, 1);
+%         for j = 1 : N
+%             IW(j) = 1 / (sqrt(((SX(i) - ORIGX(j)) ^ 2) + ((SY(i) - ORIGY(j)) ^ 2)) ^ IDW_POWER);
+%             IDX(j) = X(j) - ORIGX(j);
+%             IDY(j) = Y(j) - ORIGY(j);
+%         end
+% 
+%         SNX(i) = SX(i) + (sum(IW .* IDX) ./ sum(IW));
+%         SNY(i) = SY(i) + (sum(IW .* IDY) ./ sum(IW));
+%     end
+    
+    TOPN = 5;
+    
     for i = 1 : size(SX)
-        IW = zeros(N, 1);
-        IDX = zeros(N, 1);
-        IDY = zeros(N, 1);
+        PD = zeros(N, 1);
+        IDX = zeros(TOPN, 1);
+        IDY = zeros(TOPN, 1);
+        IW = zeros(TOPN, 1);
+        
         for j = 1 : N
-            IW(j) = 1 / (sqrt(((SX(i) - ORIGX(j)) ^ 2) + ((SY(i) - ORIGY(j)) ^ 2)) ^ IDW_POWER);
-            IDX(j) = X(j) - ORIGX(j);
-            IDY(j) = Y(j) - ORIGY(j);
+            PD(j) = sqrt((SX(i) - ORIGX(j))^2 + (SY(i) - ORIGY(j))^2);
         end
         
-        SX(i) = SX(i) + (sum(IW .* IDX) ./ sum(IW));
-        SY(i) = SY(i) + (sum(IW .* IDY) ./ sum(IW));
+        [~, idx] = sort(PD);
+        top = idx(1:TOPN);
+        
+        for j = 1 : TOPN
+            IW(j) = 1 / (sqrt(((SX(i) - ORIGX(top(j))) ^ 2) + ((SY(i) - ORIGY(top(j))) ^ 2)) ^ IDW_POWER);
+            IDX(j) = X(top(j)) - ORIGX(top(j));
+            IDY(j) = Y(top(j)) - ORIGY(top(j));
+        end
+        
+        IW = IW ./sum(IW);
+
+        SNX(i) = SX(i) + (sum(IW .* IDX) );
+        SNY(i) = SY(i) + (sum(IW .* IDY) );        
     end
     
-    [S.Lon, S.Lat] = tmerc(SY, SX, SSF);
+    [S.Lon, S.Lat] = tmerc(SNY, SNX, SSF);
     
     outStruct.TransformedFeatures = S;
-    
+    toc
     
     %% Távolsághiba számítása
     
-    global DIFF;
     DIFF = abs(D - squareform(pdist(horzcat(X, Y))));
     DIFF(W == 0) = -Inf;
     
     outStruct.DistError = DIFF;
+    outStruct.Distances = squareform(pdist(horzcat(X, Y)));
     
     %% Megoldásvektor inverz vetületi transzformációja
 
@@ -240,6 +280,7 @@ function [x, outStruct] = compute_optimal_configuration(P, D, S, o)
     x = geostruct_from_latlon(YDeg, XDeg, 'MultiPoint');
     
     % Futásiidő-mérés vége
-    outStruct.RunTime = toc;
+
+    outStruct.RunTime = 0;
 
 end  

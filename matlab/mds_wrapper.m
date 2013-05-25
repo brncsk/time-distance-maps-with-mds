@@ -33,10 +33,11 @@ function mds_wrapper(o)
             plot(outStruct.StressHistory(:, 1));
     end
     
-    % Távolság-hibák kirajzolása
+    % Shepard-diagram
     subplot(3, 6, [7:8 13:14]);
-        image(outStruct.DistError);
-    
+    outStruct.Distances(D == 0) = 0;
+        plot(D, outStruct.Distances, 'bo', [0 200],[0 200],'k--');
+
     % Térkép kirajzolása
     subplot(3, 6, [3:6 9:12 15:18]);    
         symbolspec;
@@ -118,6 +119,8 @@ function mds_wrapper(o)
             end
             
             fn = sprintf('../data/shapefiles/%s-%%s.shp', fn);
+            
+            save_shapes
             
             if (o.ShpOrigCPs)
                 shapewrite(P, sprintf(fn, 'origcps'));

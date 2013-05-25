@@ -1,4 +1,6 @@
-function [p, d] = bkv_relations(year)
+function [p, d] = bkv_relations(year, DISTTOL)
+
+    disttol_match_count = 0;
 
     global conn;
 
@@ -42,10 +44,16 @@ function [p, d] = bkv_relations(year)
         for j = 1:(nr * 2)
             if (p.Lat(j) == p1.getY) && (p.Lon(j) == p1.getX)
                 p1_id = j;
-            end
-            if (p.Lat(j) == p2.getY) && (p.Lon(j) == p2.getX)
+            elseif (p.Lat(j) == p2.getY) && (p.Lon(j) == p2.getX)
                 p1_id = j;
+            elseif (abs(p.Lat(j) - p1.getY) <= DISTTOL) && (abs(p.Lon(j) - p1.getX) <= DISTTOL)
+                p1_id = j;
+                disttol_match_count = disttol_match_count + 1;
+            elseif (abs(p.Lat(j) - p2.getY) <= DISTTOL) && (abs(p.Lon(j) - p2.getX) <= DISTTOL)
+                p2_id = j;
+                disttol_match_count = disttol_match_count + 1;
             end
+            
         end
         
         if p1_id == 0
@@ -83,4 +91,6 @@ function [p, d] = bkv_relations(year)
     d = d(1:p_i,1:p_i);
     
     p.Names = names;
+    
+    disttol_match_count
 end
